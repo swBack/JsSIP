@@ -18545,13 +18545,14 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       var _this12 = this;
 
       if (!this._isMobileDevice) {
-        this.emit('CreateMobilePeerConnection', {
+        this.emit('MobileRTCEvent', 'initMobilePeerConnection', {
           constraints: {
             audio: true,
             video: true
           },
           iceServers: pcConfig.iceServers
         });
+        this._rtcReady = true;
         debug('emit "MobilePeerconnection"');
       } else {
         this._connection = new RTCPeerConnection(pcConfig, rtcConstraints);
@@ -19188,7 +19189,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
 
       // This Only Mobile Apps to create a WebRTC.
       if (this._isMobileDevice) {
-        this.emit('InitMobileWebRTC', {
+        this.emit('MobileRTCEvent', 'NegotitaionMobileWebRTC', {
           constraints: {
             audio: mediaConstraints.audio,
             video: mediaConstraints.video
@@ -25624,7 +25625,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   _createClass(WebSocketMobileHandler, [{
     key: "_onOpen",
     value: function _onOpen() {
-      this.emit('MobileSocketEvent', 'opened');
+      this.emit('MobileSocketEvent', 'opened', null);
     }
   }, {
     key: "_onClose",
@@ -25657,17 +25658,17 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }, {
     key: "connect",
     value: function connect() {
-      this.emit('MobileSocketEvent', 'connecting');
+      this.emit('MobileSocketEvent', 'connecting', null);
     }
   }, {
     key: "disconnect",
     value: function disconnect() {
-      this.emit('socketDisconnected', 'disconnecting');
+      this.emit('MobileSocketEvent', 'disconnecting', null);
     }
   }, {
     key: "send",
     value: function send(message) {
-      this.emit('socketDisconnected', 'sendMessage', message);
+      this.emit('MobileSocketEvent', 'sendMessage', message);
     }
   }]);
 
