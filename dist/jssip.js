@@ -17020,9 +17020,9 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
     _classCallCheck(this, RTCSession);
 
     debug('new');
-    _this = _super.call(this); //  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/
+    _this = _super.call(this); //  /Android|iPhone|iPad|iPod/
 
-    _this._isMobileDevice = /iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    _this._isMobileDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     _this._id = null;
     _this._ua = ua;
     _this._status = C.STATUS_NULL;
@@ -17182,7 +17182,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
         throw new Exceptions.InvalidStateError(this._status);
       }
 
-      if (this._isMobileDevice) {
+      if (!this._isMobileDevice) {
         // Check WebRTC support.
         if (!window.RTCPeerConnection) {
           throw new Exceptions.NotSupportedError('WebRTC not supported');
@@ -18176,6 +18176,28 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       return this._dialog.sendRequest(method, options);
     }
     /**
+     * Dialog request Reception for Mobile
+    */
+
+  }, {
+    key: "MobilereceiveRequest",
+    value: function MobilereceiveRequest(sender) {
+      debug('MobilereceiveRequest()');
+
+      if (sender.error) {
+        this.terminate({
+          cause: JsSIP_C.causes.BAD_MEDIA_DESCRIPTION,
+          status_code: 488
+        });
+        debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', sender.error);
+        this.emit('peerconnection:setremotedescriptionfailed', sender.error);
+        return;
+      }
+
+      if (!this._is_confirmed) {// this._confirmed('remote', request);
+      }
+    }
+    /**
      * In dialog Request Reception
      */
 
@@ -18185,6 +18207,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       var _this10 = this;
 
       debug('receiveRequest()');
+      debug("What is request: ".concat(request));
 
       if (request.method === JsSIP_C.CANCEL) {
         /* RFC3261 15 States that a UAS may have accepted an invitation while a CANCEL
@@ -18234,26 +18257,31 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
               };
               debug('emit "sdp"');
               this.emit('sdp', e);
-              var answer = new RTCSessionDescription({
-                type: 'answer',
-                sdp: e.sdp
-              });
-              this._connectionPromiseQueue = this._connectionPromiseQueue.then(function () {
-                return _this10._connection.setRemoteDescription(answer);
-              }).then(function () {
-                if (!_this10._is_confirmed) {
-                  _this10._confirmed('remote', request);
-                }
-              })["catch"](function (error) {
-                _this10.terminate({
-                  cause: JsSIP_C.causes.BAD_MEDIA_DESCRIPTION,
-                  status_code: 488
+
+              if (this._isMobileDevice) {
+                break;
+              } else {
+                var answer = new RTCSessionDescription({
+                  type: 'answer',
+                  sdp: e.sdp
                 });
+                this._connectionPromiseQueue = this._connectionPromiseQueue.then(function () {
+                  return _this10._connection.setRemoteDescription(answer);
+                }).then(function () {
+                  if (!_this10._is_confirmed) {
+                    _this10._confirmed('remote', request);
+                  }
+                })["catch"](function (error) {
+                  _this10.terminate({
+                    cause: JsSIP_C.causes.BAD_MEDIA_DESCRIPTION,
+                    status_code: 488
+                  });
 
-                debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
+                  debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
 
-                _this10.emit('peerconnection:setremotedescriptionfailed', error);
-              });
+                  _this10.emit('peerconnection:setremotedescriptionfailed', error);
+                });
+              }
             } else if (!this._is_confirmed) {
               this._confirmed('remote', request);
             }
@@ -18544,7 +18572,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
     value: function _createRTCConnection(pcConfig, rtcConstraints) {
       var _this12 = this;
 
-      if (!this._isMobileDevice) {
+      if (this._isMobileDevice) {
         this.emit('MobileRTCEvent', 'initMobilePeerConnection', {
           constraints: {
             audio: true,
@@ -19289,6 +19317,8 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
     value: function _MobileWebRTCDelegate(sender) {
       var _this22 = this;
 
+      debug("Mobile Delegate sender: ".concat(sender));
+
       if (sender.errorDescript) {
         debugerror(sender.errorDescript);
         return;
@@ -19339,6 +19369,47 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       }
 
       return sender.dtmf;
+    }
+  }, {
+    key: "onSucessPRACK",
+    value: function onSucessPRACK(response) {
+      // Handle Session Timers.
+      this._handleSessionTimersInIncomingResponse(response);
+
+      this._accepted('remote', response);
+
+      this.sendRequest(JsSIP_C.ACK);
+
+      this._confirmed('local', null);
+    }
+  }, {
+    key: "setFailedPRACK",
+    value: function setFailedPRACK(sender) {
+      this._acceptAndTerminate(sender.response, 488, 'Not Acceptable Here');
+
+      this._failed('remote', sender.response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION);
+
+      debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', sender.error);
+      this.emit('peerconnection:setremotedescriptionfailed', sender.error);
+    }
+    /**
+     * Reception of Response for Initial INVITE on Mobile response
+     */
+
+  }, {
+    key: "MoboileInviteResponse",
+    value: function MoboileInviteResponse(sender) {
+      if (sender.error) {
+        this._acceptAndTerminate(sender.response, 488, 'Not Acceptable Here');
+
+        this._failed('remote', sender.response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION);
+
+        debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', sender.error);
+        this.emit('peerconnection:setremotedescriptionfailed', sender.error);
+        return;
+      }
+
+      this._progress('remote', sender.response);
     }
     /**
      * Reception of Response for Initial INVITE
@@ -19423,19 +19494,32 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
             };
             debug('emit "sdp"');
             this.emit('sdp', e);
-            var answer = new RTCSessionDescription({
-              type: 'answer',
-              sdp: e.sdp
-            });
-            this._connectionPromiseQueue = this._connectionPromiseQueue.then(function () {
-              return _this23._connection.setRemoteDescription(answer);
-            }).then(function () {
-              return _this23._progress('remote', response);
-            })["catch"](function (error) {
-              debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
 
-              _this23.emit('peerconnection:setremotedescriptionfailed', error);
-            });
+            if (this._isMobileDevice) {
+              debug('emit mobile "setSDP"');
+              var data = {
+                originator: 'remote',
+                type: 'answer',
+                sdp: response.body,
+                msg: response
+              };
+              this.emit('MobileRTCEvent', 'SETREMOTESDP', data);
+            } else {
+              var answer = new RTCSessionDescription({
+                type: 'answer',
+                sdp: e.sdp
+              });
+              this._connectionPromiseQueue = this._connectionPromiseQueue.then(function () {
+                return _this23._connection.setRemoteDescription(answer);
+              }).then(function () {
+                return _this23._progress('remote', response);
+              })["catch"](function (error) {
+                debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
+
+                _this23.emit('peerconnection:setremotedescriptionfailed', error);
+              });
+            }
+
             break;
           }
 
@@ -19464,43 +19548,58 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
             debug('emit "sdp"');
             this.emit('sdp', _e);
 
-            var _answer = new RTCSessionDescription({
-              type: 'answer',
-              sdp: _e.sdp
-            });
-
-            this._connectionPromiseQueue = this._connectionPromiseQueue.then(function () {
-              // Be ready for 200 with SDP after a 180/183 with SDP.
-              // We created a SDP 'answer' for it, so check the current signaling state.
-              if (_this23._connection.signalingState === 'stable') {
-                return _this23._connection.createOffer(_this23._rtcOfferConstraints).then(function (offer) {
-                  return _this23._connection.setLocalDescription(offer);
-                })["catch"](function (error) {
-                  _this23._acceptAndTerminate(response, 500, error.toString());
-
-                  _this23._failed('local', response, JsSIP_C.causes.WEBRTC_ERROR);
-                });
-              }
-            }).then(function () {
-              _this23._connection.setRemoteDescription(_answer).then(function () {
-                // Handle Session Timers.
-                _this23._handleSessionTimersInIncomingResponse(response);
-
-                _this23._accepted('remote', response);
-
-                _this23.sendRequest(JsSIP_C.ACK);
-
-                _this23._confirmed('local', null);
-              })["catch"](function (error) {
-                _this23._acceptAndTerminate(response, 488, 'Not Acceptable Here');
-
-                _this23._failed('remote', response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION);
-
-                debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
-
-                _this23.emit('peerconnection:setremotedescriptionfailed', error);
+            if (this._isMobileDevice) {
+              debug('emit mobile "setSDP"');
+              var responseString = JSON.stringify(response);
+              var _data2 = {
+                originator: 'remote',
+                type: 'answer',
+                sdp: _e.sdp,
+                msg: responseString
+              };
+              this.emit('MobileRTCEvent', 'PRACK', _data2);
+            } else {
+              var _answer = new RTCSessionDescription({
+                originator: 'remote',
+                type: 'answer',
+                sdp: _e.sdp,
+                msg: response
               });
-            });
+
+              this._connectionPromiseQueue = this._connectionPromiseQueue.then(function () {
+                // Be ready for 200 with SDP after a 180/183 with SDP.
+                // We created a SDP 'answer' for it, so check the current signaling state.
+                if (_this23._connection.signalingState === 'stable') {
+                  return _this23._connection.createOffer(_this23._rtcOfferConstraints).then(function (offer) {
+                    return _this23._connection.setLocalDescription(offer);
+                  })["catch"](function (error) {
+                    _this23._acceptAndTerminate(response, 500, error.toString());
+
+                    _this23._failed('local', response, JsSIP_C.causes.WEBRTC_ERROR);
+                  });
+                }
+              }).then(function () {
+                _this23._connection.setRemoteDescription(_answer).then(function () {
+                  // Handle Session Timers.
+                  _this23._handleSessionTimersInIncomingResponse(response);
+
+                  _this23._accepted('remote', response);
+
+                  _this23.sendRequest(JsSIP_C.ACK);
+
+                  _this23._confirmed('local', null);
+                })["catch"](function (error) {
+                  _this23._acceptAndTerminate(response, 488, 'Not Acceptable Here');
+
+                  _this23._failed('remote', response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION);
+
+                  debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
+
+                  _this23.emit('peerconnection:setremotedescriptionfailed', error);
+                });
+              });
+            }
+
             break;
           }
 
@@ -23673,30 +23772,6 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
 
 
       this._dynConfiguration.register = this._configuration.register;
-    }
-    /**
-     * Create Fail on Mobile PeerConnect
-    */
-
-  }, {
-    key: "mobilePeerConnectionFail",
-    value: function mobilePeerConnectionFail() {
-      debug('mobilePeerConnectionFail');
-      var session = new RTCSession(this);
-
-      session._RTCConnectionMobileFail();
-    }
-    /**
-     * WebRTC Delegate for Mobile Apps
-     */
-
-  }, {
-    key: "mobileWebRTCDelegate",
-    value: function mobileWebRTCDelegate(sender) {
-      debug('mobileWebRTCDelegate');
-      var session = new RTCSession(this);
-
-      session._MobileWebRTCDelegate(sender);
     }
     /**
      * Register.
