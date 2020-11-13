@@ -17264,6 +17264,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       var _this2 = this;
 
       debug('init_incoming()');
+      debug("request body ".concat(request));
       var expires;
       var contentType = request.hasHeader('Content-Type') ? request.getHeader('Content-Type').toLowerCase() : undefined; // Check body and content type.
 
@@ -17496,128 +17497,181 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
 
       if (!mediaStream && !peerHasVideoLine && !rtcOfferConstraints.offerToReceiveVideo) {
         mediaConstraints.video = false;
-      } // Create a new RTCPeerConnection instance.
-      // TODO: This may throw an error, should react.
+      } // Created a new RTCPeerConnection instance at Mobile Client
 
 
-      this._createRTCConnection(pcConfig, rtcConstraints);
+      if (this._isMobileDevice) {
+        debug("isLateSDP ".concat(this._late_sdp));
+        Promise.resolve().then(function () {
+          var desc = options.localSDP;
+          _this3._localMediaStreamLocallyGenerated = true;
+          var e = {
+            originator: 'remote',
+            type: 'offer',
+            sdp: request.body
+          };
+          debug('emit "sdp"');
 
-      Promise.resolve() // Handle local MediaStream.
-      .then(function () {
-        // A local MediaStream is given, use it.
-        if (mediaStream) {
-          return mediaStream;
-        } // Audio and/or video requested, prompt getUserMedia.
-        else if (mediaConstraints.audio || mediaConstraints.video) {
-            _this3._localMediaStreamLocallyGenerated = true;
-            return navigator.mediaDevices.getUserMedia(mediaConstraints)["catch"](function (error) {
-              if (_this3._status === C.STATUS_TERMINATED) {
-                throw new Error('terminated');
-              }
+          _this3.emit('sdp', e);
 
-              request.reply(480);
+          if (_this3._status === C.STATUS_TERMINATED) {
+            throw new Error('terminated');
+          } // TODO: Is this event already useful?
 
-              _this3._failed('local', null, JsSIP_C.causes.USER_DENIED_MEDIA_ACCESS);
 
-              debugerror('emit "getusermediafailed" [error:%o]', error);
+          _this3._connecting(request);
 
-              _this3.emit('getusermediafailed', error);
+          if (options.mobileWebRTCError) {
+            request.reply(500);
+            throw new Error("".concat(options.mobileWebRTCError, " failed"));
+          }
 
-              throw new Error('getUserMedia() failed');
+          var type = !_this3._late_sdp ? 'answer' : 'offer';
+
+          _this3._createdMobileLocalDescription(type, options.sdp);
+
+          _this3._handleSessionTimersInIncomingRequest(request, extraHeaders);
+
+          request.reply(200, null, extraHeaders, desc, function () {
+            _this3._status = C.STATUS_WAITING_FOR_ACK;
+
+            _this3._setInvite2xxTimer(request, desc);
+
+            _this3._setACKTimer();
+
+            _this3._accepted('local');
+          }, function () {
+            _this3._failed('system', null, JsSIP_C.causes.CONNECTION_ERROR);
+          });
+        })["catch"](function (error) {
+          if (_this3._status === C.STATUS_TERMINATED) {
+            return;
+          }
+
+          debugerror(error);
+        });
+      } else {
+        // Create a new RTCPeerConnection instance.
+        // TODO: This may throw an error, should react.
+        this._createRTCConnection(pcConfig, rtcConstraints);
+
+        Promise.resolve() // Handle local MediaStream.
+        .then(function () {
+          // A local MediaStream is given, use it.
+          if (mediaStream) {
+            return mediaStream;
+          } // Audio and/or video requested, prompt getUserMedia.
+          else if (mediaConstraints.audio || mediaConstraints.video) {
+              _this3._localMediaStreamLocallyGenerated = true;
+              return navigator.mediaDevices.getUserMedia(mediaConstraints)["catch"](function (error) {
+                if (_this3._status === C.STATUS_TERMINATED) {
+                  throw new Error('terminated');
+                }
+
+                request.reply(480);
+
+                _this3._failed('local', null, JsSIP_C.causes.USER_DENIED_MEDIA_ACCESS);
+
+                debugerror('emit "getusermediafailed" [error:%o]', error);
+
+                _this3.emit('getusermediafailed', error);
+
+                throw new Error('getUserMedia() failed');
+              });
+            }
+        }) // Attach MediaStream to RTCPeerconnection.
+        .then(function (stream) {
+          if (_this3._status === C.STATUS_TERMINATED) {
+            throw new Error('terminated');
+          }
+
+          _this3._localMediaStream = stream;
+
+          if (stream) {
+            stream.getTracks().forEach(function (track) {
+              _this3._connection.addTrack(track, stream);
             });
           }
-      }) // Attach MediaStream to RTCPeerconnection.
-      .then(function (stream) {
-        if (_this3._status === C.STATUS_TERMINATED) {
-          throw new Error('terminated');
-        }
+        }) // Set remote description.
+        .then(function () {
+          if (_this3._late_sdp) {
+            return;
+          }
 
-        _this3._localMediaStream = stream;
+          var e = {
+            originator: 'remote',
+            type: 'offer',
+            sdp: request.body
+          };
+          debug('emit "sdp"');
 
-        if (stream) {
-          stream.getTracks().forEach(function (track) {
-            _this3._connection.addTrack(track, stream);
+          _this3.emit('sdp', e);
+
+          var offer = new RTCSessionDescription({
+            type: 'offer',
+            sdp: e.sdp
           });
-        }
-      }) // Set remote description.
-      .then(function () {
-        if (_this3._late_sdp) {
-          return;
-        }
+          _this3._connectionPromiseQueue = _this3._connectionPromiseQueue.then(function () {
+            return _this3._connection.setRemoteDescription(offer);
+          })["catch"](function (error) {
+            request.reply(488);
 
-        var e = {
-          originator: 'remote',
-          type: 'offer',
-          sdp: request.body
-        };
-        debug('emit "sdp"');
+            _this3._failed('system', null, JsSIP_C.causes.WEBRTC_ERROR);
 
-        _this3.emit('sdp', e);
+            debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
 
-        var offer = new RTCSessionDescription({
-          type: 'offer',
-          sdp: e.sdp
-        });
-        _this3._connectionPromiseQueue = _this3._connectionPromiseQueue.then(function () {
-          return _this3._connection.setRemoteDescription(offer);
+            _this3.emit('peerconnection:setremotedescriptionfailed', error);
+
+            throw new Error('peerconnection.setRemoteDescription() failed');
+          });
+          return _this3._connectionPromiseQueue;
+        }) // Create local description.
+        .then(function () {
+          if (_this3._status === C.STATUS_TERMINATED) {
+            throw new Error('terminated');
+          } // TODO: Is this event already useful?
+
+
+          _this3._connecting(request);
+
+          if (!_this3._late_sdp) {
+            return _this3._createLocalDescription('answer', rtcAnswerConstraints)["catch"](function () {
+              request.reply(500);
+              throw new Error('_createLocalDescription() failed');
+            });
+          } else {
+            return _this3._createLocalDescription('offer', _this3._rtcOfferConstraints)["catch"](function () {
+              request.reply(500);
+              throw new Error('_createLocalDescription() failed');
+            });
+          }
+        }) // Send reply.
+        .then(function (desc) {
+          if (_this3._status === C.STATUS_TERMINATED) {
+            throw new Error('terminated');
+          }
+
+          _this3._handleSessionTimersInIncomingRequest(request, extraHeaders);
+
+          request.reply(200, null, extraHeaders, desc, function () {
+            _this3._status = C.STATUS_WAITING_FOR_ACK;
+
+            _this3._setInvite2xxTimer(request, desc);
+
+            _this3._setACKTimer();
+
+            _this3._accepted('local');
+          }, function () {
+            _this3._failed('system', null, JsSIP_C.causes.CONNECTION_ERROR);
+          });
         })["catch"](function (error) {
-          request.reply(488);
+          if (_this3._status === C.STATUS_TERMINATED) {
+            return;
+          }
 
-          _this3._failed('system', null, JsSIP_C.causes.WEBRTC_ERROR);
-
-          debugerror('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
-
-          _this3.emit('peerconnection:setremotedescriptionfailed', error);
-
-          throw new Error('peerconnection.setRemoteDescription() failed');
+          debugerror(error);
         });
-        return _this3._connectionPromiseQueue;
-      }) // Create local description.
-      .then(function () {
-        if (_this3._status === C.STATUS_TERMINATED) {
-          throw new Error('terminated');
-        } // TODO: Is this event already useful?
-
-
-        _this3._connecting(request);
-
-        if (!_this3._late_sdp) {
-          return _this3._createLocalDescription('answer', rtcAnswerConstraints)["catch"](function () {
-            request.reply(500);
-            throw new Error('_createLocalDescription() failed');
-          });
-        } else {
-          return _this3._createLocalDescription('offer', _this3._rtcOfferConstraints)["catch"](function () {
-            request.reply(500);
-            throw new Error('_createLocalDescription() failed');
-          });
-        }
-      }) // Send reply.
-      .then(function (desc) {
-        if (_this3._status === C.STATUS_TERMINATED) {
-          throw new Error('terminated');
-        }
-
-        _this3._handleSessionTimersInIncomingRequest(request, extraHeaders);
-
-        request.reply(200, null, extraHeaders, desc, function () {
-          _this3._status = C.STATUS_WAITING_FOR_ACK;
-
-          _this3._setInvite2xxTimer(request, desc);
-
-          _this3._setACKTimer();
-
-          _this3._accepted('local');
-        }, function () {
-          _this3._failed('system', null, JsSIP_C.causes.CONNECTION_ERROR);
-        });
-      })["catch"](function (error) {
-        if (_this3._status === C.STATUS_TERMINATED) {
-          return;
-        }
-
-        debugerror(error);
-      });
+      }
     }
     /**
      * Terminate the call.
@@ -18612,6 +18666,19 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
         reason_phrase: JsSIP_C.causes.RTP_TIMEOUT
       });
       debug('emit "peerconnectionMobileFail"');
+    }
+  }, {
+    key: "_createdMobileLocalDescription",
+    value: function _createdMobileLocalDescription(type, sdp) {
+      debug('createdMobileLocalDescription()');
+      this._rtcReady = false;
+      var e = {
+        originator: 'local',
+        type: type,
+        sdp: sdp
+      };
+      debug('emit "sdp"');
+      this.emit('sdp', e);
     }
   }, {
     key: "_createLocalDescription",
